@@ -1,0 +1,40 @@
+# Swift / SPM
+.build/
+build/
+*.o
+*.d
+
+# App/distribution artifacts
+dist/
+*.app/
+*.pkg
+*.xcarchive
+*.dSYM
+*.dSYM.zip
+Clipwell/Products/
+
+# Xcode
+*.xcodeproj/
+.swiftpm/xcode/package.xcworkspace/
+.swiftpm/xcode/xcuserdata/
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+DerivedData/
+*.hmap
+*.ipa
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
