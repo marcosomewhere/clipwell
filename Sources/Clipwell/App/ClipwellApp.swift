@@ -10,7 +10,9 @@ struct ClipwellApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
+                .environmentObject(AppSettings.shared)
+                .environmentObject(ClipboardRepository.shared)
         }
         .commands {
             CommandGroup(replacing: .appSettings) {

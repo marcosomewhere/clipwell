@@ -157,7 +157,7 @@ struct SettingsLocalization {
         }
     }
 
-    var code: String { text(en: "Code", de: "Code", pl: "Kod", fr: "Code") }
+    var code: String { text(en: "Script", de: "Skript", pl: "Skrypt", fr: "Script") }
     var paste: String { text(en: "Paste", de: "Einfügen", pl: "Wklej", fr: "Coller") }
     var pasteAsPlainText: String { text(en: "Paste as Plain Text", de: "Als Klartext einfügen", pl: "Wklej jako zwykły tekst", fr: "Coller en texte brut") }
     var edit: String { text(en: "Edit...", de: "Bearbeiten...", pl: "Edytuj...", fr: "Modifier...") }

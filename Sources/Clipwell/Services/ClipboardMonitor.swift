@@ -98,10 +98,7 @@ final class ClipboardMonitor {
         repository.addItem(item)
         logger.debug("Captured clipboard item: \(item.typeLabel)")
 
-        // Kick off background OCR for image items
-        if case .image = item.content {
-            OCRService.shared.enqueue(item: item)
-        }
+        // Repository starts OCR once for all image sources, including screenshots and drops.
 
         // v1.2: Async URL metadata fetch for URL items
         if item.analysis?.detectedURL != nil {

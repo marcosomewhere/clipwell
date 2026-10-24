@@ -7,6 +7,7 @@ import SwiftUI
 struct HistoryRowView: View {
 
     @EnvironmentObject private var settings: AppSettings
+    @ObservedObject private var ocr = OCRIndex.shared
 
     let item: ClipboardItem
     var onPaste: () -> Void = {}
@@ -37,6 +38,14 @@ struct HistoryRowView: View {
 
             Spacer(minLength: 0)
 
+            if let raw = analysis?.detectedURL, let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "globe") }
+                    .buttonStyle(.borderless)
+                    .help("Website öffnen")
+            }
+            Button { FeatureCoordinator.shared.edit(item) } label: { Image(systemName: "square.and.pencil") }
+                .buttonStyle(.borderless)
+                .help("Bearbeiten")
             if item.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.caption2)
@@ -47,6 +56,7 @@ struct HistoryRowView: View {
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .contextMenu { contextMenu }
+        .onDrag { ClipboardTransfer.provider(for: item) }
     }
 
     // MARK: - Content Icon

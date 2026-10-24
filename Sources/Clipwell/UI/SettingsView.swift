@@ -15,6 +15,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsTab()
                 .tabItem { Label(l10n.general, systemImage: "gear") }
+            ShortcutSettingsView()
+                .tabItem { Label("Shortcuts", systemImage: "command") }
             PrivacySettingsTab()
                 .tabItem { Label(l10n.privacy, systemImage: "lock.shield") }
             StorageSettingsTab()
@@ -81,14 +83,6 @@ private struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section(l10n.shortcuts) {
-                LabeledContent(l10n.openPickerShortcut, value: "⌘⇧V")
-                LabeledContent(l10n.plainTextShortcut, value: "⌥")
-                Text(l10n.shortcutsNote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section(l10n.history) {
                 Stepper(
                     l10n.keepItems(settings.maxHistoryCount),
@@ -96,11 +90,8 @@ private struct GeneralSettingsTab: View {
                     in: 10...2000,
                     step: 10
                 )
-                Picker(l10n.duplicateHandling, selection: $settings.duplicateHandling) {
-                    ForEach(DuplicateHandlingMode.allCases) { mode in
-                        Text(l10n.duplicateMode(mode)).tag(mode)
-                    }
-                }
+                Text("Neue Kopien ersetzen identische ältere Einträge. Bearbeitete Bilder bleiben separat erhalten.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -252,6 +243,10 @@ private struct StorageSettingsTab: View {
                 LabeledContent(l10n.totalEntries,  value: "\(repository.items.count)")
                 LabeledContent(l10n.pinnedEntries, value: "\(repository.items.filter(\.isPinned).count)")
                 LabeledContent(l10n.imagesStored,  value: "\(imageCount)")
+            }
+            Section("Export") {
+                Button("History als JSON exportieren …") { HistoryExport.run(repository.items) }
+                Text("Enthält Bilder, OCR-Text und angepinnte Einträge.").font(.caption).foregroundStyle(.secondary)
             }
             Section(l10n.actions) {
                 Button(l10n.clearUnpinned, role: .destructive) { repository.clearUnpinnedHistory() }

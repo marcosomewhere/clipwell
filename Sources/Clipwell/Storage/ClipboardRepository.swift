@@ -11,7 +11,7 @@ import OSLog
 @MainActor
 final class ClipboardRepository: ObservableObject {
 
-    static let shared = ClipboardRepository()
+    static let shared = ClipboardRepository(persistence: .shared, settings: .shared)
 
     // MARK: - Published State
 
@@ -20,11 +20,16 @@ final class ClipboardRepository: ObservableObject {
 
     // MARK: - Private
 
-    private let persistence = PersistenceStore.shared
-    private let settings = AppSettings.shared
+    private let persistence: PersistenceStore
+    private let settings: AppSettings
+    private let startOCR: Bool
+    private var imageDigests: [UUID: Data] = [:]
     private let logger = Logger(subsystem: "com.clipwell.app", category: "Repository")
 
-    private init() {
+    init(persistence: PersistenceStore, settings: AppSettings, startOCR: Bool = true) {
+        self.persistence = persistence
+        self.settings = settings
+        self.startOCR = startOCR
         items = persistence.loadHistory()
         compactDuplicateTextItemsIfNeeded()
         logger.info("Repository initialized with \(self.items.count) items.")
@@ -52,36 +57,12 @@ final class ClipboardRepository: ObservableObject {
 
     /// Called by ClipboardMonitor when a new clipboard change is detected.
     func addItem(_ item: ClipboardItem) {
-        if refreshDuplicateTextItem(with: item) {
-            return
-        }
-
-        let mode = settings.duplicateHandling
-
-        switch mode {
-        case .keepAll:
-            break
-
-        case .collapseConsecutive:
-            if let latest = items.first(where: { !$0.isPinned }),
-               latest.hasSameContent(as: item) {
-                return
-            }
-
-        case .deduplicateGlobal:
-            items.removeAll { $0.hasSameContent(as: item) && !$0.isPinned }
-        }
-
-        let insertIndex = items.firstIndex(where: { !$0.isPinned }) ?? items.endIndex
-        items.insert(item, at: insertIndex)
-
-        enforceCapacity()
-        persist()
+        insertReplacingDuplicates(item)
     }
 
     func removeItem(_ item: ClipboardItem) {
         items.removeAll { $0.id == item.id }
-        OCRIndex.shared.remove(itemID: item.id)
+        removeOCR(item.id)
         persist()
     }
 
@@ -133,9 +114,72 @@ final class ClipboardRepository: ObservableObject {
         let allIDs = Set(items.map(\.id))
         items.removeAll()
         persist()
-        allIDs.forEach { OCRIndex.shared.remove(itemID: $0) }
+        allIDs.forEach { removeOCR($0) }
         persistence.cleanupOrphanedImages(referencedIDs: [])
     }
+
+    /// Exact text equality preserves whitespace-significant scripts. Pins migrate to the new copy.
+    private func insertReplacingDuplicates(_ incoming: ClipboardItem) {
+        var next = incoming
+        let duplicates = items.filter { $0.isEditedImage != true && incoming.isEditedImage != true && samePayloadCached($0, incoming) }
+        next.isPinned = next.isPinned || duplicates.contains(where: \.isPinned)
+        let ids = Set(duplicates.map(\.id))
+        items.removeAll { ids.contains($0.id) }
+        ids.forEach { removeOCR($0) }
+        items.append(next)
+        sortItems()
+        enforceCapacity()
+        persist()
+        if startOCR, case .image = next.content { OCRService.shared.enqueue(item: next) }
+    }
+
+    private func digest(_ item: ClipboardItem, png: Data) -> Data {
+        if let cached = imageDigests[item.id] { return cached }
+        let result = ImageFingerprint.digest(png)
+        imageDigests[item.id] = result
+        return result
+    }
+
+    private func samePayloadCached(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+        if case .image(let a, _) = lhs.content, case .image(let b, _) = rhs.content {
+            return digest(lhs, png: a) == digest(rhs, png: b)
+        }
+        return Self.samePayload(lhs, rhs)
+    }
+
+    static func samePayload(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+        switch (lhs.content, rhs.content) {
+        case (.text(let a, _), .text(let b, _)): return a == b
+        case (.image(let a, _), .image(let b, _)): return ImageFingerprint.digest(a) == ImageFingerprint.digest(b)
+        case (.fileReferences(let a), .fileReferences(let b)): return a.map(\.path) == b.map(\.path)
+        default: return false
+        }
+    }
+
+    func setPinned(_ id: UUID, _ pinned: Bool) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].isPinned = pinned
+        sortItems()
+        persist()
+    }
+
+    func saveEditedImage(_ content: ClipboardContent, original: ClipboardItem, editedID: UUID?) -> UUID {
+        if let editedID, let index = items.firstIndex(where: { $0.id == editedID }) {
+            items[index].content = content
+            items[index].isEditedImage = true
+            removeOCR(editedID)
+            imageDigests.removeValue(forKey: editedID)
+            if startOCR { OCRService.shared.enqueue(item: items[index]) }
+            persist()
+            return editedID
+        }
+        var copy = ClipboardItem(content: content, isPinned: original.isPinned)
+        copy.isEditedImage = true
+        addItem(copy)
+        return copy.id
+    }
+
+    private func removeOCR(_ id: UUID) { if startOCR { OCRIndex.shared.remove(itemID: id) } }
 
     // MARK: - Private Helpers
 
@@ -152,61 +196,16 @@ final class ClipboardRepository: ObservableObject {
         items = pinned + unpinned
     }
 
-    private func refreshDuplicateTextItem(with newItem: ClipboardItem) -> Bool {
-        guard let newText = newItem.content.normalizedPlainText,
-              let index = items.firstIndex(where: { existing in
-                  existing.content.normalizedPlainText == newText
-              }) else {
-            return false
-        }
-
-        let existingID = items[index].id
-        let wasPinned = items[index].isPinned
-        // Keep the existing identity so OCR/search selection state and UI references stay stable.
-        items[index] = ClipboardItem(
-            id: existingID,
-            content: newItem.content,
-            capturedAt: Date(),
-            sourceAppBundleID: newItem.sourceAppBundleID,
-            sourceAppName: newItem.sourceAppName,
-            isPinned: wasPinned,
-            analysis: newItem.analysis
-        )
-        sortItems()
-        enforceCapacity()
-        persist()
-        logger.debug("Refreshed duplicate text clipboard item.")
-        return true
-    }
-
     private func compactDuplicateTextItemsIfNeeded() {
-        var newestTextItems: [String: ClipboardItem] = [:]
-        var compacted: [ClipboardItem] = []
-        var removedDuplicateCount = 0
-
+        var kept: [ClipboardItem] = []
         for item in items.sorted(by: { $0.capturedAt > $1.capturedAt }) {
-            guard let textKey = item.content.normalizedPlainText else {
-                compacted.append(item)
-                continue
-            }
-
-            if var existing = newestTextItems[textKey] {
-                existing.isPinned = existing.isPinned || item.isPinned
-                newestTextItems[textKey] = existing
-                removedDuplicateCount += 1
-            } else {
-                newestTextItems[textKey] = item
-            }
+            if item.isEditedImage != true,
+               let index = kept.firstIndex(where: { $0.isEditedImage != true && samePayloadCached($0, item) }) {
+                kept[index].isPinned = kept[index].isPinned || item.isPinned
+                removeOCR(item.id)
+            } else { kept.append(item) }
         }
-
-        guard removedDuplicateCount > 0 else { return }
-
-        compacted.append(contentsOf: newestTextItems.values)
-        items = compacted
-        sortItems()
-        enforceCapacity()
-        persist()
-        logger.info("Compacted \(removedDuplicateCount) duplicate text clipboard items.")
+        if kept.count != items.count { items = kept; sortItems(); persist() }
     }
 
     private func sortItems() {
@@ -216,6 +215,9 @@ final class ClipboardRepository: ObservableObject {
     }
 
     private func persist() {
+        let retained = Set(items.map(\.id))
+        imageDigests = imageDigests.filter { retained.contains($0.key) }
+        if startOCR { OCRIndex.shared.prune(keeping: retained) }
         persistence.saveHistory(items)
     }
 }

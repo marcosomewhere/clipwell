@@ -31,8 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menuBarController.setup()
 
-        hotkeyController.onActivate = { [weak self] in
-            self?.overlayPanelController.toggle()
+        FeatureCoordinator.shared.configure(repository: repository, monitor: monitor) { [weak self] in
+            self?.overlayPanelController.close()
+            self?.menuBarController.closePopover()
+        }
+        hotkeyController.onAction = { [weak self] action in
+            if action == .picker { self?.overlayPanelController.toggle() }
+            else { FeatureCoordinator.shared.perform(action) }
         }
         hotkeyController.register()
 
@@ -62,9 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
         hotkeyController.unregister()
+        PersistenceStore.shared.flush()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { overlayPanelController.show() }
+        return true
     }
 
     @objc private func openSettings() {
+        if let sceneWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" }) {
+            bringSettingsWindowToFront(sceneWindow)
+            return
+        }
         if let window = settingsWindow {
             bringSettingsWindowToFront(window)
             return

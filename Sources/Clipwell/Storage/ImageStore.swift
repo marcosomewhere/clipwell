@@ -8,7 +8,7 @@ import Foundation
 enum ImageStore {
 
     /// Maximum dimension (width or height) for a stored image in pixels.
-    private static let maxStoredDimension: CGFloat = 2048
+    private static let maxStoredDimension: CGFloat = 16384
     /// Thumbnail longest side in pixels.
     private static let thumbnailDimension: CGFloat = 120
     /// JPEG compression quality for thumbnails (0–1).

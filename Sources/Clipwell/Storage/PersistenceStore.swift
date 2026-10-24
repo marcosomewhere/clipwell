@@ -18,10 +18,12 @@ final class PersistenceStore {
 
     private let logger = Logger(subsystem: "com.clipwell.app", category: "PersistenceStore")
     private let queue = DispatchQueue(label: "com.clipwell.persistence", qos: .utility)
+    private let directory: URL?
 
     // MARK: - File Paths
 
     private var appSupportURL: URL {
+        if let directory { return directory }
         let urls = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
         return urls[0].appendingPathComponent("Clipwell", isDirectory: true)
     }
@@ -36,9 +38,13 @@ final class PersistenceStore {
 
     // MARK: - Init
 
-    private init() {
+    init(directory: URL? = nil) {
+        self.directory = directory
         createDirectoriesIfNeeded()
     }
+
+    /// Complete queued atomic writes before termination or a backup.
+    func flush() { queue.sync {} }
 
     private func createDirectoriesIfNeeded() {
         let fm = FileManager.default

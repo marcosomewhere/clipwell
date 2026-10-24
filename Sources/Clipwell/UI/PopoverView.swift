@@ -36,6 +36,7 @@ private struct ClipboardGroupKey: Hashable {
 struct PopoverView: View {
 
     @EnvironmentObject private var repository: ClipboardRepository
+    @ObservedObject private var ocr = OCRIndex.shared
     @EnvironmentObject private var settings: AppSettings
     private var l10n: SettingsLocalization { SettingsLocalization(settings.language.resolved) }
 
@@ -74,6 +75,7 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            FeatureToolbar()
             searchBar
             filterToolbar
             Divider()
@@ -270,8 +272,8 @@ struct PopoverView: View {
             onPlainTextPaste: { selectAndCommit(item, asPlainText: true) },
             onPin:            { repository.togglePin(item) },
             onDelete:         { repository.removeItem(item) },
-            onEdit:           { editingItem = item },
-            onPreview:        { openImagePreview(for: item) }
+            onEdit:           { FeatureCoordinator.shared.edit(item) },
+            onPreview:        { FeatureCoordinator.shared.edit(item) }
         )
     }
 

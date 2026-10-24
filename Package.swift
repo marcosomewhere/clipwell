@@ -20,6 +20,7 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
+        .testTarget(name: "ClipwellTests", dependencies: ["Clipwell"], path: "Tests/ClipwellTests"),
         .executableTarget(
             name: "Clipwell",
             dependencies: [],

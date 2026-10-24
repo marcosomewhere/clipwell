@@ -20,7 +20,7 @@ final class OCRIndex: ObservableObject {
     static let shared = OCRIndex()
 
     /// item.id → space-joined recognized strings
-    private(set) var recognizedText: [UUID: String] = [:]
+    @Published private(set) var recognizedText: [UUID: String] = [:]
 
     private let logger = Logger(subsystem: "com.clipwell.app", category: "OCRIndex")
     private let persistence = OCRIndexPersistence()
@@ -41,6 +41,13 @@ final class OCRIndex: ObservableObject {
 
     func remove(itemID: UUID) {
         recognizedText.removeValue(forKey: itemID)
+        persistence.save(recognizedText)
+    }
+
+    func prune(keeping ids: Set<UUID>) {
+        let filtered = recognizedText.filter { ids.contains($0.key) }
+        guard filtered.count != recognizedText.count else { return }
+        recognizedText = filtered
         persistence.save(recognizedText)
     }
 
@@ -98,6 +105,10 @@ final class OCRService: @unchecked Sendable {
             guard !joined.isEmpty else { return }
 
             Task { @MainActor in
+                guard ClipboardRepository.shared.items.contains(where: {
+                    guard $0.id == itemID, case .image(let current, _) = $0.content else { return false }
+                    return current == pngData
+                }) else { return }
                 OCRIndex.shared.store(text: joined, for: itemID)
             }
         }

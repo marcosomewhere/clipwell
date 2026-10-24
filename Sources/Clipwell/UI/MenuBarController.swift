@@ -72,7 +72,7 @@ final class MenuBarController {
         }
     }
 
-    private func closePopover() {
+    func closePopover() {
         popover?.performClose(nil)
         popover = nil
 

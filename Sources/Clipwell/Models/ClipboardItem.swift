@@ -16,6 +16,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // MARK: - User State
 
     var isPinned: Bool
+    /// Edited images remain separate from repeated original captures.
+    var isEditedImage: Bool? = nil
     /// v1.2: Rich analysis — URLs, URL metadata, and generic code detection.
     /// Optional so existing persisted items without it decode cleanly.
     var analysis: ContentAnalysis?
