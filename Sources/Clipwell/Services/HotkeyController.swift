@@ -58,7 +58,19 @@ final class HotkeyController {
     private var refs: [EventHotKeyRef] = []
     private var handler: EventHandlerRef?
     private var observer: NSObjectProtocol?
+    private var localMonitor: Any?
     func register() {
+        if localMonitor == nil {
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard !ShortcutPreferences.shared.recording else { return event }
+                let preferences = ShortcutPreferences.shared
+                guard let action = ShortcutAction.allCases.first(where: {
+                    preferences.errors[$0.rawValue] == nil && preferences.bindings[$0.rawValue]?.matches(event) == true
+                }) else { return event }
+                self?.onAction?(action)
+                return nil
+            }
+        }
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: .clipwellShortcutsChanged, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.register() }
@@ -91,6 +103,7 @@ final class HotkeyController {
         refs.forEach { UnregisterEventHotKey($0) }; refs.removeAll()
         if let handler { RemoveEventHandler(handler) }; handler = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }; observer = nil
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }; localMonitor = nil
     }
 }
 
@@ -156,4 +169,15 @@ private struct ShortcutRecorder: NSViewRepresentable {
 
 extension Notification.Name {
     static let clipwellShortcutsChanged = Notification.Name("clipwellShortcutsChanged")
+    static let clipwellOpenPicker = Notification.Name("clipwellOpenPicker")
+}
+
+extension ShortcutBinding {
+    func matches(_ event: NSEvent) -> Bool {
+        var flags: UInt32 = 0
+        for (flag, carbon) in [(NSEvent.ModifierFlags.control, controlKey), (.option, optionKey), (.shift, shiftKey), (.command, cmdKey)] {
+            if event.modifierFlags.contains(flag) { flags |= UInt32(carbon) }
+        }
+        return UInt32(event.keyCode) == keyCode && flags == modifiers
+    }
 }

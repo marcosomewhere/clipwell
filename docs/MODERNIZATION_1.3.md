@@ -1,5 +1,16 @@
 # Clipwell 1.3 – macOS-Modernisierung
 
+## Nachprüfung 1.3.1
+
+- Klartext-Einfügen im Pinboard benutzt jetzt denselben Paste-Pfad wie die History, einschließlich OCR-Text und Dateipfaden.
+- Das Pinboard akzeptiert auch abgelegte Web-URL-Objekte; interne Einträge werden über ihre ID gepinnt, ohne eine zusätzliche Kopie zu erzeugen.
+- Alle Werkzeuge sind zusätzlich über das App-Menü „Werkzeuge“ erreichbar.
+- Konfigurierte Shortcuts funktionieren auch bei lokalen Tastaturereignissen innerhalb der App. Während der Shortcut-Aufnahme bleiben sie ausgesetzt.
+- „Speichern unter“ erlaubt bei Text/Skript eigene Dateiendungen. PNG- und JSON-Export bleiben auf ihren Dateityp begrenzt.
+- OCR erhält erkannte Zeilenumbrüche, damit Screenshot-Text beim Kopieren seine Zeilen behält.
+
+Prüfstand 25.10.2026: zwölf automatisierte Tests erfolgreich, einschließlich echter Vision-OCR auf einem erzeugten Screenshot-Testbild und asynchroner NSItemProvider-Übertragung von Text, Bild, Weblink und internem History-Eintrag. Release-Build, App-Signatur und Info.plist geprüft. Der Shortcut-Recorder wurde in den Einstellungen bedient. Eine vollständige interaktive Prüfung der Screenshot-Aufnahme, des Ziehens zwischen Fenstern und der Editor-Bedienung blieb wegen eines Fehlers der UI-Automationsverbindung (`native pipe startup failed`) offen; die Integrationstests ersetzen diese Live-Prüfung nicht.
+
 ## Bedienung
 
 Die zusätzliche Werkzeugleiste im Picker enthält Pinboard, Screenshot-Auswahl, Vollbild-Screenshot des Hauptbildschirms und Farbpicker. Das Design folgt den nativen Systemfarben; Bild- und Textwerkzeuge öffnen sich in separaten, skalierbaren Fenstern.

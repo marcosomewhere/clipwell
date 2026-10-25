@@ -15,6 +15,11 @@ struct ClipwellApp: App {
                 .environmentObject(ClipboardRepository.shared)
         }
         .commands {
+            CommandMenu("Werkzeuge") {
+                ForEach(ShortcutAction.allCases) { action in
+                    Button(action.title) { FeatureCoordinator.shared.perform(action) }
+                }
+            }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") {
                     NotificationCenter.default.post(name: .clipwellOpenSettings, object: nil)

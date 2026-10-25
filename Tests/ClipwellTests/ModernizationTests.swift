@@ -1,6 +1,8 @@
 import AppKit
 import XCTest
 import SwiftUI
+import Carbon.HIToolbox
+import UniformTypeIdentifiers
 @testable import Clipwell
 
 final class ModernizationTests: XCTestCase {
@@ -123,6 +125,53 @@ final class ModernizationTests: XCTestCase {
         XCTAssertEqual(view.selectedRange(), selection)
         let keyword = view.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
         XCTAssertEqual(keyword, .systemPurple)
+    }
+
+    @MainActor func testPinboardAcceptsInternalItemsTextImagesAndWebURLs() async throws {
+        let (repo, persistence, directory) = repository()
+        defer { persistence.flush(); try? FileManager.default.removeItem(at: directory) }
+        let original = ClipboardItem(content: .text(plain: "internal pin", rtfData: nil))
+        repo.addItem(original)
+        let internalProvider = ClipboardTransfer.provider(for: original)
+        let textProvider = NSItemProvider(object: "external pin" as NSString)
+        let urlProvider = NSItemProvider(object: NSURL(string: "https://example.com/clipwell-test")!)
+        let png = try imageData(width: 32, height: 20)
+        let imageProvider = NSItemProvider()
+        imageProvider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in completion(png, nil); return nil }
+        XCTAssertTrue(ClipboardTransfer.accept([internalProvider, textProvider, urlProvider, imageProvider], into: repo))
+        for _ in 0..<100 {
+            if repo.items.count == 4 && repo.items.allSatisfy(\.isPinned) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(repo.items.count, 4)
+        XCTAssertTrue(repo.items.allSatisfy(\.isPinned))
+        XCTAssertTrue(repo.items.contains { $0.id == original.id })
+        XCTAssertTrue(repo.items.contains { $0.effectiveAnalysis?.detectedURL == "https://example.com/clipwell-test" })
+        XCTAssertTrue(repo.items.contains { if case .image = $0.content { return true }; return false })
+    }
+
+    @MainActor func testScreenshotTextIsRecognizedByRealVisionOCR() async throws {
+        let image = NSImage(size: NSSize(width: 1000, height: 230))
+        image.lockFocus()
+        NSColor.white.setFill(); NSRect(x: 0, y: 0, width: 1000, height: 230).fill()
+        ("CLIPWELL SCREENSHOT 4826\nSecond line of text" as NSString).draw(in: NSRect(x: 30, y: 20, width: 940, height: 190), withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 42, weight: .medium), .foregroundColor: NSColor.black])
+        image.unlockFocus()
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let recognized = try await Task.detached { try OCRService.extractText(from: png) }.value
+        XCTAssertTrue(recognized.contains("CLIPWELL SCREENSHOT 4826"), recognized)
+        XCTAssertTrue(recognized.contains("Second line of text"), recognized)
+        XCTAssertTrue(recognized.contains("\n"), recognized)
+    }
+
+    @MainActor func testShortcutMatchingRequiresExactModifiers() async throws {
+        let binding = ShortcutBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(cmdKey | shiftKey), label: "⇧⌘B")
+        func key(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, characters: "B", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: UInt16(kVK_ANSI_B)))
+        }
+        XCTAssertTrue(binding.matches(try key([.command, .shift])))
+        XCTAssertFalse(binding.matches(try key([.command])))
+        XCTAssertFalse(binding.matches(try key([.command, .shift, .option])))
     }
 
     @MainActor func testEditorLayoutsRenderOffscreen() async throws {

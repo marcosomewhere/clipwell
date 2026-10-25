@@ -25,6 +25,7 @@ enum FileActions {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name
         panel.allowedContentTypes = [type]
+        panel.allowsOtherFileTypes = type.conforms(to: .text)
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try data.write(to: url, options: .atomic); completion?(url) }
@@ -84,7 +85,7 @@ final class FeatureCoordinator: NSObject, NSWindowDelegate, ObservableObject {
 
     func perform(_ action: ShortcutAction) {
         switch action {
-        case .picker: break
+        case .picker: NotificationCenter.default.post(name: .clipwellOpenPicker, object: nil)
         case .pinboard: togglePinboard()
         case .selectionScreenshot: screenshot(selection: true)
         case .fullScreenshot: screenshot(selection: false)
@@ -163,9 +164,9 @@ final class FeatureCoordinator: NSObject, NSWindowDelegate, ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
     }
-    func paste(_ item: ClipboardItem) {
+    func paste(_ item: ClipboardItem, asPlainText: Bool = false) {
         guard let monitor else { return }
-        PasteService.shared.select(item: item, monitor: monitor, forcePaste: true, targetApp: pasteTarget)
+        PasteService.shared.select(item: item, monitor: monitor, asPlainText: asPlainText, forcePaste: true, targetApp: pasteTarget)
     }
     func record(_ content: ClipboardContent, pinned: Bool = false) {
         repository.addItem(ClipboardItem(content: content, isPinned: pinned, analysis: {
@@ -277,38 +278,54 @@ enum ClipboardTransfer {
         return provider
     }
 
-    @MainActor static func accept(_ providers: [NSItemProvider]) -> Bool {
+    @MainActor static func accept(_ providers: [NSItemProvider], into target: ClipboardRepository? = nil) -> Bool {
+        let repository = target ?? .shared
         var accepted = false
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(itemType) {
                 accepted = true
                 provider.loadDataRepresentation(forTypeIdentifier: itemType) { data, _ in
                     guard let data, let value = String(data: data, encoding: .utf8), let id = UUID(uuidString: value) else { return }
-                    Task { @MainActor in ClipboardRepository.shared.setPinned(id, true) }
+                    Task { @MainActor in repository.setPinned(id, true) }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 accepted = true
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
                     guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                    Task { @MainActor in FeatureCoordinator.shared.record(.fileReferences([FileReference(url: url)]), pinned: true) }
+                    Task { @MainActor in record(.fileReferences([FileReference(url: url)]), in: repository) }
+                }
+            } else if provider.canLoadObject(ofClass: NSURL.self) {
+                accepted = true
+                _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
+                    guard let url = object as? URL else { return }
+                    Task { @MainActor in
+                        if url.isFileURL { record(.fileReferences([FileReference(url: url)]), in: repository) }
+                        else { record(.text(plain: url.absoluteString, rtfData: nil), in: repository) }
+                    }
                 }
             } else if provider.canLoadObject(ofClass: NSImage.self) {
                 accepted = true
                 _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
                     guard let image = object as? NSImage else { return }
                     Task { @MainActor in
-                        if let content = ImageStore.prepareImageContent(from: image) { FeatureCoordinator.shared.record(content, pinned: true) }
+                        if let content = ImageStore.prepareImageContent(from: image) { record(content, in: repository) }
                     }
                 }
             } else if provider.canLoadObject(ofClass: NSString.self) {
                 accepted = true
                 _ = provider.loadObject(ofClass: NSString.self) { object, _ in
                     guard let text = object as? String else { return }
-                    Task { @MainActor in FeatureCoordinator.shared.record(.text(plain: text, rtfData: nil), pinned: true) }
+                    Task { @MainActor in record(.text(plain: text, rtfData: nil), in: repository) }
                 }
             }
         }
         return accepted
+    }
+
+    @MainActor private static func record(_ content: ClipboardContent, in repository: ClipboardRepository) {
+        let analysis: ContentAnalysis?
+        if case .text(let text, _) = content { analysis = ContentAnalyzer.analyze(text) } else { analysis = nil }
+        repository.addItem(ClipboardItem(content: content, isPinned: true, analysis: analysis))
     }
 }
 
@@ -331,7 +348,7 @@ struct PinboardView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(items) { item in
-                            HistoryRowView(item: item, onPaste: { FeatureCoordinator.shared.paste(item) }, onPlainTextPaste: { FeatureCoordinator.shared.copyText(item.plainText ?? OCRIndex.shared.text(for: item.id) ?? "") }, onPin: { repository.setPinned(item.id, false) }, onDelete: { repository.removeItem(item) }, onEdit: { FeatureCoordinator.shared.edit(item) }, onPreview: { FeatureCoordinator.shared.edit(item) })
+                            HistoryRowView(item: item, onPaste: { FeatureCoordinator.shared.paste(item) }, onPlainTextPaste: { FeatureCoordinator.shared.paste(item, asPlainText: true) }, onPin: { repository.setPinned(item.id, false) }, onDelete: { repository.removeItem(item) }, onEdit: { FeatureCoordinator.shared.edit(item) }, onPreview: { FeatureCoordinator.shared.edit(item) })
                             Divider()
                         }
                     }.padding(6)
@@ -345,6 +362,6 @@ struct PinboardView: View {
             }.padding(10)
         }
         .background(dropTarget ? Color.accentColor.opacity(0.1) : Color(nsColor: .windowBackgroundColor))
-        .onDrop(of: [ClipboardTransfer.itemType, UTType.fileURL.identifier, UTType.image.identifier, UTType.text.identifier], isTargeted: $dropTarget) { ClipboardTransfer.accept($0) }
+        .onDrop(of: [ClipboardTransfer.itemType, UTType.fileURL.identifier, UTType.url.identifier, UTType.image.identifier, UTType.text.identifier], isTargeted: $dropTarget) { ClipboardTransfer.accept($0) }
     }
 }

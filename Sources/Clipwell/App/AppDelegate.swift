@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyController.register()
 
         monitor.start()
+        NotificationCenter.default.addObserver(self, selector: #selector(showPicker), name: .clipwellOpenPicker, object: nil)
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(openSettings),
@@ -74,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !flag { overlayPanelController.show() }
         return true
     }
+
+    @objc private func showPicker() { overlayPanelController.show() }
 
     @objc private func openSettings() {
         if let sceneWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" }) {

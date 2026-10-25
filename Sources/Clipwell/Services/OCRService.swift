@@ -19,7 +19,7 @@ final class OCRIndex: ObservableObject {
 
     static let shared = OCRIndex()
 
-    /// item.id → space-joined recognized strings
+    /// item.id → recognized lines, preserved for copying screenshot text.
     @Published private(set) var recognizedText: [UUID: String] = [:]
 
     private let logger = Logger(subsystem: "com.clipwell.app", category: "OCRIndex")
@@ -88,22 +88,9 @@ final class OCRService: @unchecked Sendable {
     // MARK: - Vision
 
     private func recognize(pngData: Data, itemID: UUID) {
-        guard let cgImage = cgImage(from: pngData) else {
-            logger.warning("OCR: could not decode image for \(itemID)")
-            return
-        }
-
-        let request = VNRecognizeTextRequest { [weak self] req, error in
-            if let error {
-                self?.logger.error("OCR request error: \(error.localizedDescription)")
-                return
-            }
-            let observations = req.results as? [VNRecognizedTextObservation] ?? []
-            let strings = observations.compactMap { $0.topCandidates(1).first?.string }
-            let joined = strings.joined(separator: " ")
-
+        do {
+            let joined = try Self.extractText(from: pngData)
             guard !joined.isEmpty else { return }
-
             Task { @MainActor in
                 guard ClipboardRepository.shared.items.contains(where: {
                     guard $0.id == itemID, case .image(let current, _) = $0.content else { return false }
@@ -111,30 +98,22 @@ final class OCRService: @unchecked Sendable {
                 }) else { return }
                 OCRIndex.shared.store(text: joined, for: itemID)
             }
-        }
-
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        // Recognize top languages; Vision auto-detects from image content
-        request.recognitionLanguages = ["en-US", "de-DE", "fr-FR", "es-ES"]
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try handler.perform([request])
             logger.debug("OCR completed for \(itemID)")
         } catch {
             logger.error("OCR handler error: \(error.localizedDescription)")
         }
     }
 
-    private func cgImage(from pngData: Data) -> CGImage? {
-        guard let provider = CGDataProvider(data: pngData as CFData) else { return nil }
-        return CGImage(
-            pngDataProviderSource: provider,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
-        )
+    static func extractText(from pngData: Data) throws -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        // Recognize top languages; Vision auto-detects from image content
+        request.recognitionLanguages = ["en-US", "de-DE", "fr-FR", "es-ES"]
+
+        let handler = VNImageRequestHandler(data: pngData, options: [:])
+        try handler.perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
 }
 
